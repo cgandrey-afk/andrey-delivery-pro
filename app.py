@@ -8,7 +8,7 @@ from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
 from difflib import SequenceMatcher
 
-# 1. Configuração inicial do Dashboard - NOME ATUALIZADO
+# 1. Configuração inicial do Dashboard
 st.set_page_config(page_title="Gerenciador de Rotas", layout="wide", page_icon="🚚")
 
 # --- BANCO DE DADOS DE NOTAS (JSON) ---
@@ -67,7 +67,6 @@ def formatar_sequencia_visual(lista_seq):
             num = "".join(filter(str.isdigit, s_str.split('.')[0]))
             if num: numeros.append(int(num))
     
-    # 1 CAIXINHA NO SEQUENCE
     if not numeros: return "📦 Sem Ordem" if adicionais == 0 else f"📦 {adicionais} Adds"
     
     numeros = sorted(list(set(numeros)))
@@ -152,7 +151,7 @@ with tab1:
                     'Rua_Base': 'first', 'Num_Casa': 'first', 'Comp_Padrao': 'first'
                 }).reset_index(drop=True)
 
-                # 1 ALFINETE NO ADERESSE (DESTINATION ADDRESS)
+                # Coloca o alfinete no endereço
                 df_f['Destination Address'] = df_f['Destination Address'].apply(lambda x: f"📍 {x}")
 
                 def aplicar_formatacao_final(row):
@@ -180,9 +179,10 @@ with tab1:
                 st.success("✅ Processamento concluído!")
                 st.dataframe(df_f[cols_final])
                 
+                # --- NOVO NOME DE SALVAMENTO: "Entrega [NOME] [DATA]" ---
                 data_str = datetime.now().strftime("%d-%m-%Y")
                 nome_base = arquivo.name.split('.')[0]
-                nome_final = f"Entregas {data_str} {nome_base}.csv"
+                nome_final = f"Entrega {nome_base} {data_str}.csv"
                 
                 csv = df_f[cols_final].to_csv(index=False).encode('utf-8-sig')
                 st.download_button("📥 Baixar Planilha", csv, nome_final, "text/csv")
