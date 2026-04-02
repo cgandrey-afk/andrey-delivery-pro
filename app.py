@@ -5,28 +5,36 @@ import numpy as np
 import json
 import os
 from datetime import datetime
-from math import radians, cos, sin, asin, sqrt
 from difflib import SequenceMatcher
 
 # 1. Configuração inicial do Dashboard
 st.set_page_config(page_title="Gerenciador de Rotas", layout="wide", page_icon="🚚")
 
-# --- BANCO DE DADOS DE NOTAS (JSON) ---
+# --- BANCO DE DADOS (JSON) ---
 OBS_FILE = "observacoes.json"
+COND_FILE = "condominios.json"
 
-def carregar_obs():
-    if os.path.exists(OBS_FILE):
+def carregar_dados(arquivo):
+    if os.path.exists(arquivo):
         try:
-            with open(OBS_FILE, "r", encoding="utf-8") as f:
+            with open(arquivo, "r", encoding="utf-8") as f:
                 return json.load(f)
         except: return {}
     return {}
 
-def salvar_obs(dic_obs):
-    with open(OBS_FILE, "w", encoding="utf-8") as f:
-        json.dump(dic_obs, f, indent=4, ensure_ascii=False)
+def salvar_dados(arquivo, dados):
+    with open(arquivo, "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
 
 # --- FUNÇÕES DE PADRONIZAÇÃO E LIMPEZA ---
+def limpar_para_condominio(texto):
+    if not texto: return ""
+    t = str(texto).upper().strip()
+    t = re.sub(r'(\d+),\s*\1', r'\1', t)
+    # Corta em complementos comuns para ter a base Rua + Número
+    t = re.split(r'\b(APT|APTO|AP|APARTAMENTO|BLOCO|BL|SL|SALA|FUNDOS|CASA|A\d+|B\d+|C\d+|D\d+)\b', t)[0]
+    return t.replace(',', ' ').replace('  ', ' ').strip()
+
 def padronizar_complemento(texto):
     if not texto: return ""
     t = str(texto).upper().strip()
@@ -66,9 +74,7 @@ def formatar_sequencia_visual(lista_seq):
         else:
             num = "".join(filter(str.isdigit, s_str.split('.')[0]))
             if num: numeros.append(int(num))
-    
     if not numeros: return "📦 Sem Ordem" if adicionais == 0 else f"📦 {adicionais} Adds"
-    
     numeros = sorted(list(set(numeros)))
     ranges = []
     start, last = numeros[0], numeros[0]
@@ -78,7 +84,6 @@ def formatar_sequencia_visual(lista_seq):
             ranges.append(f"{start} ao {last}" if start != last else str(start))
             start = last = n
     ranges.append(f"{start} ao {last}" if start != last else str(start))
-    
     resumo = "Pacote " + ", ".join(ranges)
     if adicionais > 0: resumo += f" + {adicionais} Add"
     return f"📦 {resumo}"
@@ -86,11 +91,13 @@ def formatar_sequencia_visual(lista_seq):
 # --- INICIALIZAÇÃO DE MEMÓRIA ---
 if 'enderecos_planilha' not in st.session_state:
     st.session_state.enderecos_planilha = []
+if 'temp_condo_list' not in st.session_state:
+    st.session_state.temp_condo_list = []
 
 # --- INTERFACE ---
 st.title("🚚 Gerenciador de Rotas")
 
-tab1, tab2 = st.tabs(["📋 Processar Planilha", "📝 Gerenciar Notas"])
+tab1, tab2, tab3 = st.tabs(["📋 Processar Planilha", "📝 Gerenciar Notas", "🏢 Condomínios"])
 
 with tab1:
     arquivo = st.file_uploader("1. Carregar Planilha", type=['xlsx', 'csv'], key="up_v5")
@@ -104,9 +111,11 @@ with tab1:
                 st.rerun()
 
             if st.button("🚀 Processar e Agrupar AGORA"):
-                notas_vivas = carregar_obs()
+                notas_vivas = carregar_dados(OBS_FILE)
+                condos_db = carregar_dados(COND_FILE)
                 df = df_temp.copy()
                 
+                # 1. Identificação de Bases e Notas
                 df['Num_Casa'] = df['Destination Address'].apply(extrair_numero)
                 df['Rua_Base'] = df['Destination Address'].apply(normalizar_rua)
                 df['Comp_Padrao'] = df['Destination Address'].apply(extrair_complemento_puro).apply(padronizar_complemento)
@@ -114,44 +123,54 @@ with tab1:
                 def verificar_minha_nota(row):
                     r_p, n_p, c_p = row['Rua_Base'], row['Num_Casa'], row['Comp_Padrao']
                     for chave_s in notas_vivas.keys():
-                        try:
-                            partes_s = chave_s.split('|')
-                            if len(partes_s) == 3:
-                                r_s, n_s, c_s = partes_s
-                                if n_p == n_s and c_p == c_s and SequenceMatcher(None, r_p, r_s).ratio() > 0.8:
-                                    return True
-                        except: continue
+                        partes_s = chave_s.split('|')
+                        if len(partes_s) == 3:
+                            if n_p == partes_s[1] and c_p == partes_s[2] and SequenceMatcher(None, r_p, partes_s[0]).ratio() > 0.8:
+                                return True
                     return False
                 
                 df['Tem_Minha_Nota'] = df.apply(verificar_minha_nota, axis=1)
 
+                # 2. Lógica de Endereço Final (Respeitando a Barreira de Notas)
+                def definir_destino_final(row):
+                    addr_original = row['Destination Address']
+                    # BARREIRA: Se tem nota, mantém o endereço original (não vai para a portaria principal)
+                    if row['Tem_Minha_Nota']:
+                        return addr_original
+                    
+                    # Se não tem nota, verifica se pertence a algum condomínio
+                    addr_limpo = limpar_para_condominio(addr_original)
+                    for principal, lista_membros in condos_db.items():
+                        p_limpo = limpar_para_condominio(principal)
+                        m_limpos = [limpar_para_condominio(m) for m in lista_membros]
+                        if addr_limpo == p_limpo or addr_limpo in m_limpos:
+                            return principal
+                    return addr_original
+
+                df['Addr_Final'] = df.apply(definir_destino_final, axis=1)
+
+                # 3. Agrupamento Consolidado
                 group_ids = np.zeros(len(df))
                 curr = 1
                 for i in range(len(df)):
                     if group_ids[i] == 0:
                         group_ids[i] = curr
                         for j in range(i + 1, len(df)):
-                            m_num = (df.iloc[i]['Num_Casa'] == df.iloc[j]['Num_Casa']) and (df.iloc[i]['Num_Casa'] != "")
-                            sim_rua = SequenceMatcher(None, df.iloc[i]['Rua_Base'], df.iloc[j]['Rua_Base']).ratio()
-                            if m_num and sim_rua > 0.8:
+                            # Agrupa se o endereço final (já processado) for idêntico
+                            if df.iloc[i]['Addr_Final'] == df.iloc[j]['Addr_Final']:
+                                # Se um tem nota e o outro não, eles não agrupam (separação de pacotes especiais)
                                 if df.iloc[i]['Tem_Minha_Nota'] == df.iloc[j]['Tem_Minha_Nota']:
-                                    if df.iloc[i]['Tem_Minha_Nota']:
-                                        if df.iloc[i]['Comp_Padrao'] == df.iloc[j]['Comp_Padrao']:
-                                            group_ids[j] = curr
-                                    else:
-                                        group_ids[j] = curr
+                                    group_ids[j] = curr
                         curr += 1
                 
                 df['GroupID'] = group_ids
-                
                 df_f = df.groupby('GroupID').agg({
-                    'Sequence': lambda x: list(x),
-                    'Destination Address': 'first', 'Bairro': 'first', 'City': 'first',
+                    'Sequence': lambda x: list(x), 'Addr_Final': 'first', 'Bairro': 'first', 'City': 'first',
                     'Zipcode/Postal code': 'first', 'Latitude': 'first', 'Longitude': 'first',
                     'Rua_Base': 'first', 'Num_Casa': 'first', 'Comp_Padrao': 'first'
                 }).reset_index(drop=True)
 
-                # Coloca o alfinete no endereço
+                df_f = df_f.rename(columns={'Addr_Final': 'Destination Address'})
                 df_f['Destination Address'] = df_f['Destination Address'].apply(lambda x: f"📍 {x}")
 
                 def aplicar_formatacao_final(row):
@@ -159,87 +178,94 @@ with tab1:
                     r_p, n_p, c_p = row['Rua_Base'], row['Num_Casa'], row['Comp_Padrao']
                     nota_encontrada = ""
                     for chave_s, nota_s in notas_vivas.items():
-                        try:
-                            partes_s = chave_s.split('|')
-                            if len(partes_s) == 3:
-                                r_s, n_s, c_s = partes_s
-                                if n_p == n_s and c_p == c_s and SequenceMatcher(None, r_p, r_s).ratio() > 0.8:
-                                    nota_encontrada = nota_s
-                                    break
-                        except: continue
-                    
-                    if nota_encontrada:
-                        return f"⚠️ {nota_encontrada} | {texto_seq}"
-                    return texto_seq
+                        partes_s = chave_s.split('|')
+                        if len(partes_s) == 3 and n_p == partes_s[1] and c_p == partes_s[2] and SequenceMatcher(None, r_p, partes_s[0]).ratio() > 0.8:
+                            nota_encontrada = nota_s
+                            break
+                    return f"⚠️ {nota_encontrada} | {texto_seq}" if nota_encontrada else texto_seq
 
                 df_f['Sequence'] = df_f.apply(aplicar_formatacao_final, axis=1)
+                cols_f = ['Sequence', 'Destination Address', 'Bairro', 'City', 'Zipcode/Postal code', 'Latitude', 'Longitude']
                 
-                cols_final = ['Sequence', 'Destination Address', 'Bairro', 'City', 'Zipcode/Postal code', 'Latitude', 'Longitude']
-                
-                st.success("✅ Processamento concluído!")
-                st.dataframe(df_f[cols_final])
-                
-                # --- NOVO NOME DE SALVAMENTO: "Entrega [NOME] [DATA]" ---
-                data_str = datetime.now().strftime("%d-%m-%Y")
-                nome_base = arquivo.name.split('.')[0]
-                nome_final = f"Entrega {nome_base} {data_str}.csv"
-                
-                csv = df_f[cols_final].to_csv(index=False).encode('utf-8-sig')
-                st.download_button("📥 Baixar Planilha", csv, nome_final, "text/csv")
+                st.success("✅ Agrupamento concluído!")
+                st.dataframe(df_f[cols_f])
+                st.download_button("📥 Baixar Planilha", df_f[cols_f].to_csv(index=False).encode('utf-8-sig'), 
+                                   f"Roteiro_{datetime.now().strftime('%d-%m-%Y')}.csv", "text/csv")
 
+# --- AS ABAS 2 E 3 PERMANECEM COM A MESMA LÓGICA DE CADASTRO ---
 with tab2:
-    st.session_state.banco_notas = carregar_obs()
+    st.session_state.banco_notas = carregar_dados(OBS_FILE)
     st.subheader("📝 Gerenciar Notas")
-    
-    lista_opcoes = ["-- Selecione um endereço --"] + st.session_state.enderecos_planilha if st.session_state.enderecos_planilha else ["-- Planilha não carregada --"]
-    endereco_selecionado = st.selectbox("📍 Buscar da Planilha:", lista_opcoes)
-    
-    if endereco_selecionado and endereco_selecionado not in ["-- Selecione um endereço --", "-- Planilha não carregada --"]:
-        rua_sug, num_sug, comp_sug = normalizar_rua(endereco_selecionado), extrair_numero(endereco_selecionado), extrair_complemento_puro(endereco_selecionado)
-    else:
-        rua_sug, num_sug, comp_sug = "", "", ""
+    end_sel = st.selectbox("📍 Buscar da Planilha:", ["-- Selecione --"] + st.session_state.enderecos_planilha, key="sel_notas")
+    rua_sug = normalizar_rua(end_sel) if end_sel != "-- Selecione --" else ""
+    num_sug = extrair_numero(end_sel) if end_sel != "-- Selecione --" else ""
+    comp_sug = extrair_complemento_puro(end_sel) if end_sel != "-- Selecione --" else ""
 
     with st.form("form_notas", clear_on_submit=True):
-        col_r, col_n, col_c = st.columns([2, 1, 1])
-        with col_r: rua_in = st.text_input("Rua", value=rua_sug).upper().strip()
-        with col_n: num_in = st.text_input("Número", value=num_sug).strip()
-        with col_c: comp_in = st.text_input("Complemento (AP)", value=comp_sug).upper().strip()
+        c1, n1, cp1 = st.columns([2, 1, 1])
+        rua_in = c1.text_input("Rua", value=rua_sug).upper().strip()
+        num_in = n1.text_input("Número", value=num_sug).strip()
+        comp_in = cp1.text_input("Comp (AP)", value=comp_sug).upper().strip()
         obs_in = st.text_input("Nota / Observação")
-        
         if st.form_submit_button("➕ Salvar Nota"):
             if rua_in and num_in and obs_in:
-                banco = carregar_obs()
-                chave = f"{rua_in}|{num_in}|{padronizar_complemento(comp_in)}"
-                banco[chave] = obs_in
-                salvar_obs(banco)
-                st.success("Nota salva!")
+                b = carregar_dados(OBS_FILE)
+                b[f"{rua_in}|{num_in}|{padronizar_complemento(comp_in)}"] = obs_in
+                salvar_dados(OBS_FILE, b)
                 st.rerun()
 
-    st.divider()
-    
     if st.session_state.banco_notas:
-        st.subheader("📋 Notas Ativas")
-        c_head1, c_head2, c_head3 = st.columns([2, 2, 1])
-        c_head1.markdown("**⚠️ OBSERVAÇÃO**")
-        c_head2.markdown("**📍 ENDEREÇO**")
-        st.write("---")
+        for ch, nt in list(st.session_state.banco_notas.items()):
+            p = ch.split('|')
+            c_o, c_e, c_d = st.columns([2, 2, 1])
+            c_o.markdown(f"⚠️ **{nt}**")
+            c_e.write(f"📍 {p[0]}, {p[1]} {p[2]}")
+            if c_d.button("🗑️", key=f"del_{ch}"):
+                b = carregar_dados(OBS_FILE)
+                if ch in b: del b[ch]
+                salvar_dados(OBS_FILE, b)
+                st.rerun()
 
-        for chave, nota in list(st.session_state.banco_notas.items()):
-            try:
-                partes = chave.split('|')
-                if len(partes) == 3:
-                    end_visual = f"📍 {partes[0]}, {partes[1]} {partes[2]}"
-                else:
-                    end_visual = f"📍 {chave.replace('|', ', ')}"
-                
-                col_obs, col_end, col_del = st.columns([2, 2, 1])
-                col_obs.markdown(f"⚠️ **{nota}**")
-                col_end.markdown(f"{end_visual}")
-                
-                if col_del.button("🗑️ Apagar", key=f"del_v5_{chave}"):
-                    banco_atual = carregar_obs()
-                    if chave in banco_atual:
-                        del banco_atual[chave]
-                        salvar_obs(banco_atual)
+with tab3:
+    st.subheader("🏢 Agrupar Condomínios")
+    condos_db = carregar_dados(COND_FILE)
+    col_add, col_list = st.columns([1, 1])
+    
+    with col_add:
+        st.markdown("### 1. Adicionar ao Grupo")
+        e_plan = st.selectbox("Escolher da Planilha:", ["-- Selecione --"] + st.session_state.enderecos_planilha, key="c_plan")
+        e_manu = st.text_input("OU Digitar Manualmente (Rua, Número):", key="c_manu").upper().strip()
+        
+        if st.button("➕ Incluir na Lista"):
+            alvo = e_plan if e_plan != "-- Selecione --" else e_manu
+            if alvo:
+                limpo = limpar_para_condominio(alvo)
+                if limpo not in st.session_state.temp_condo_list:
+                    st.session_state.temp_condo_list.append(limpo)
                     st.rerun()
-            except: continue
+
+        if st.session_state.temp_condo_list:
+            voto_principal = ""
+            for i, addr in enumerate(st.session_state.temp_condo_list):
+                c1, c2 = st.columns([4, 1])
+                if c1.checkbox(f"{addr}", key=f"check_c_{i}"): voto_principal = addr
+                if c2.button("❌", key=f"del_tmp_{i}"):
+                    st.session_state.temp_condo_list.remove(addr)
+                    st.rerun()
+            
+            if st.button("💾 Salvar Grupo de Condomínio"):
+                if voto_principal and len(st.session_state.temp_condo_list) >= 2:
+                    condos_db[voto_principal] = [a for a in st.session_state.temp_condo_list if a != voto_principal]
+                    salvar_dados(COND_FILE, condos_db)
+                    st.session_state.temp_condo_list = []
+                    st.rerun()
+
+    with col_list:
+        st.markdown("### 2. Grupos Cadastrados")
+        for princ, outros in list(condos_db.items()):
+            with st.expander(f"🏢 Portaria: {princ}"):
+                for o in outros: st.write(f"🏠 {o}")
+                if st.button("Remover Grupo", key=f"del_g_{princ}"):
+                    del condos_db[princ]
+                    salvar_dados(COND_FILE, condos_db)
+                    st.rerun()
