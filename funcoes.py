@@ -112,21 +112,67 @@ def padronizar_complemento(texto):
 
 def formatar_sequencia_visual(lista_seq):
     numeros = []
+    contagem_adds = 0
+    
     for s in lista_seq:
-        num = "".join(filter(str.isdigit, str(s).split('.')[0]))
-        if num: numeros.append(int(num))
-    if not numeros: return "📦 Pacotes"
-    numeros = sorted(list(set(numeros)))
-    ranges = []
-    if not numeros: return ""
-    start, last = numeros[0], numeros[0]
-    for n in numeros[1:]:
-        if n == last + 1: last = n
+        s_str = str(s).strip()
+        if s_str == "-" or s_str == "":
+            contagem_adds += 1
+            continue
+            
+        num_limpo = "".join(filter(str.isdigit, s_str.split('.')[0].split('-')[0]))
+        if num_limpo:
+            numeros.append(int(num_limpo))
         else:
-            ranges.append(f"{start} ao {last}" if start != last else str(start))
-            start = last = n
-    ranges.append(f"{start} ao {last}" if start != last else str(start))
-    return f"📦 Pacotes: {', '.join(ranges)}"
+            contagem_adds += 1
+
+    texto_numeros = ""
+    total_numerados = 0
+    
+    if numeros:
+        numeros = sorted(list(set(numeros)))
+        total_numerados = len(numeros)
+        
+        ranges = []
+        if total_numerados > 0:
+            start, last = numeros[0], numeros[0]
+            for n in numeros[1:]:
+                if n == last + 1:
+                    last = n
+                else:
+                    # Regra do "e" para apenas 2 pacotes seguidos
+                    if last == start + 1:
+                        ranges.append(f"{start} e {last}")
+                    else:
+                        ranges.append(f"{start} ao {last}" if start != last else str(start))
+                    start = last = n
+            
+            # Fecha o último range com a regra do "e"
+            if last == start + 1:
+                ranges.append(f"{start} e {last}")
+            else:
+                ranges.append(f"{start} ao {last}" if start != last else str(start))
+            
+            texto_numeros = ", ".join(ranges)
+
+    total_geral = total_numerados + contagem_adds
+    
+    # Se só tem 1 pacote no total, não mostra a contagem final
+    if total_geral <= 1:
+        resultado = texto_numeros if texto_numeros else "1 Add"
+        return f"📦 Pacotes: {resultado}"
+
+    # Monta o texto dos ADDS
+    texto_adds = ""
+    if contagem_adds > 0:
+        label_add = "Add" if contagem_adds == 1 else "Adds"
+        prefixo = " + " if texto_numeros else ""
+        texto_adds = f"{prefixo}{contagem_adds} {label_add}"
+
+    # Monta o texto do Total (Apenas para 2 ou mais)
+    texto_total = f" | Total: {total_geral} Pacotes"
+
+    return f"📦 Pacotes: {texto_numeros}{texto_adds}{texto_total}"
 
 def aplicar_formatacao_final(row, notas_vivas):
     texto_seq = formatar_sequencia_visual(row['Sequence'])
