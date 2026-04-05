@@ -1,3 +1,0 @@
-cd C:\Users\Andrey\Desktop\Teste APP
-
-python -m streamlit run app.py
