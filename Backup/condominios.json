@@ -1,0 +1,10 @@
+{
+    "ema 150": {
+        "tipo": "separado_por_bloco",
+        "portarias": [
+            "RUA EMA, 150 BL A",
+            "RUA EMA, 150 BL B",
+            "RUA EMA, 150 BL C"
+        ]
+    }
+}

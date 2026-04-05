@@ -1,0 +1,26 @@
+🟢 1. Entrada e Preparação (Upload)
+Ação: O usuário carrega um arquivo .xlsx ou .csv.
+
+Limpeza Instantânea: O código extrai os endereços únicos para alimentar a lista de sugestões da aba de notas (st.session_state.enderecos_planilha).
+
+🟡 2. Processamento de Dados (O "Cérebro")
+Quando você clica em "🚀 Processar", o código executa estas sub-etapas em ordem:
+
+Padronização: Aplica as funções normalizar_rua, extrair_numero e padronizar_complemento. Isso evita que "Rua Dez" e "R. Dez" sejam tratadas como ruas diferentes.
+
+Checagem de Notas: O sistema percorre o observacoes.json. Se o endereço da planilha bater com uma chave do banco (Rua + Num + Comp), ele marca a linha com Tem_Minha_Nota = True.
+
+Lógica de Agrupamento (GroupID):
+
+Compara a linha A com a linha B.
+
+Se NÃO tem nota: Agrupa apenas pelo número da casa e similaridade da rua (0.8).
+
+Se TEM nota: Só agrupa se o Número E o Complemento forem idênticos. Isso garante que cada apartamento com nota própria fique separado.
+
+🔴 3. Saída e Formatação (Output)
+Agregação: O groupby('GroupID') junta os pacotes. Se o Grupo 1 tem 3 pacotes, o código une as sequências (ex: 10, 11, 12) usando a função formatar_sequencia_visual.
+
+Visualização: Adiciona o emoji de alfinete (📍) no endereço e o aviso (⚠️) caso exista uma nota recuperada do JSON.
+
+Download: Gera o CSV final com o nome datado.
