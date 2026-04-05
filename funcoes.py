@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
-import re
 import json
 import os
 from difflib import SequenceMatcher
+from num2words import num2words
+from geopy.distance import geodesic
+import re
 
 OBS_FILE = "observacoes.json"
 CONDO_FILE = "condominios.json"
@@ -43,6 +45,40 @@ def salvar_json(dados, arquivo):
 # -----------------------------
 # LIMPEZA E EXTRAÇÃO
 # -----------------------------
+
+def converter_numero_da_rua_ate_100(texto):
+    if not texto: return ""
+    t = str(texto).upper().strip()
+
+    def realizar_conversao(match):
+        # match.group(1) é a palavra "RUA "
+        # match.group(2) é o número encontrado logo depois
+        palavra_chave = match.group(1)
+        num_str = match.group(2)
+        
+        try:
+            num_int = int(num_str)
+            # Só converte se for um número de rua razoável (1 a 100)
+            # Isso evita converter por engano se alguém escrever "RUA 2026"
+            if 1 <= num_int <= 100:
+                extenso = num2words(num_int, lang='pt_BR').upper()
+                return f"{palavra_chave}{extenso}"
+            else:
+                return f"{palavra_chave}{num_str}"
+        except:
+            return f"{palavra_chave}{num_str}"
+
+    # REGEX EXPLICADA:
+    # (\bRUA\s+) -> Grupo 1: A palavra RUA seguida de espaços
+    # (\d+)      -> Grupo 2: O número colado nela
+    # (?=\b)     -> Garante que o número terminou (fronteira de palavra)
+    padrao = r'(\bRUA\s+)(\d+)(?=\b)'
+
+    # Substitui apenas o que deu match na regra "RUA + NUMERO"
+    t = re.sub(padrao, realizar_conversao, t, flags=re.IGNORECASE)
+    
+    return t
+    
 def extrair_bloco(texto):
     if pd.isna(texto): return ""
     t = str(texto).upper().replace(',', ' ')
@@ -83,18 +119,48 @@ def limpar_rua_com_bairro(endereco, bairro_oficial):
     if pd.isna(endereco): return ""
     t = str(endereco).upper().strip()
     
-    # Remove vírgulas e pontos logo de cara para não atrapalhar
+    # 1. Limpeza inicial de pontuação
     t = t.replace(',', ' ').replace('.', ' ')
     
-    # Se o usuário escreveu o bairro no meio do endereço, nós removemos
-    bairro = str(bairro_oficial).upper().strip() if pd.notna(bairro_oficial) else ""
-    if bairro:
-        t = t.replace(bairro, "")
-        # Também tenta remover abreviações comuns de bairro
-        t = t.replace("JD " + bairro.replace("JARDIM ", ""), "")
-        t = t.replace("JARDIM " + bairro.replace("JD ", ""), "")
+    # 2. Lista de prefixos de bairro e suas abreviações
+    # Adicionamos as variações mais comuns encontradas em planilhas de entrega
+    prefixos = {
+        "JARDIM": ["JD", "JARD", "JARDIM"],
+        "PARQUE": ["PQ", "PRQ", "PARQUE"],
+        "VILA": ["V", "VL", "VILA"],
+        "RESIDENCIAL": ["RES", "RESI", "RESIDENCIAL"],
+        "CONJUNTO": ["CONJ", "CJ", "CONJUNTO"],        
+        "CHACARA": ["CH", "CHAC", "CHACARA"],
+        "LOTEAMENTO": ["LOT", "LOTEAMENTO"],
+        "BOSQUE": ["BQ", "BSQ", "BOSQUE"],
+        "SETOR": ["SEC", "SETOR"]
+    }
 
-    # Remove o número e tudo o que vem depois para sobrar só o NOME da rua
+    bairro = str(bairro_oficial).upper().strip() if pd.notna(bairro_oficial) else ""
+    
+    if bairro:
+        # Remove o nome do bairro completo
+        t = t.replace(bairro, "")
+        
+        # Remove as variações (Ex: Se o bairro é JARDIM AMENDOLA, remove JD AMENDOLA)
+        for nome_cheio, abrevs in prefixos.items():
+            # Se o bairro começa com um dos nomes cheios (ex: JARDIM)
+            if bairro.startswith(nome_cheio):
+                nome_base_bairro = bairro.replace(nome_cheio, "").strip()
+                for abrev in abrevs:
+                    t = t.replace(f"{abrev} {nome_base_bairro}", "")
+            
+            # Caso o bairro oficial já venha abreviado (ex: JD AMENDOLA)
+            for abrev in abrevs:
+                if bairro.startswith(abrev + " "):
+                    nome_base_bairro = bairro.replace(abrev + " ", "").strip()
+                    t = t.replace(f"{nome_cheio} {nome_base_bairro}", "")
+
+    # 3. Limpeza de espaços duplos gerados pelos replaces
+    t = re.sub(r'\s+', ' ', t).strip()
+
+    # 4. Remove o número e tudo o que vem depois para sobrar só o NOME da rua
+    # Importante: A regex \s\d+ evita cortar nomes de rua que tem números (RUA 10)
     t = re.sub(r'\s\d+.*', '', t)
     
     return normalizar_rua(t)
@@ -181,50 +247,74 @@ def normalizar_termos_condo(texto):
     
     # Remove espaços duplos
     return re.sub(r'\s+', ' ', t).strip()
+    
 def formatar_endereco_agrupado(row, db_condos):
+    # 1. Preparação dos dados
     rua_planilha = str(row['Rua_Base']).upper().strip()
     num_planilha = str(row['Num_Casa']).upper().strip()
-    # Texto da Shopee normalizado (ex: Rua Ema 150 Bloco C -> RUA EMA 150 BL C)
-    end_original_norm = normalizar_termos_condo(row['Destination Address'])
+    end_original = normalizar_termos_condo(row['Destination Address'])
     
-    # 1. BUSCA POR REGRA DE CADASTRO (Aba 3 - Caso 2)
+    # --- LISTA DE PALAVRAS QUE SÃO "RUA PURA" ---
+    # Se aparecer qualquer uma dessas, o sistema PARA e não coloca "CONDOMINIO"
+    travas_rua = ["VIELA", "CAMINHO", "CASA", "TERREO", "FUNDOS", "GARAGEM", "LOJA", "SALA"]
+    
+    if any(p in end_original for p in travas_rua):
+        return montar_endereco_limpo(end_original, rua_planilha, num_planilha)
+
+    # 2. REGRAS DO SEU CADASTRO (Aba 3) - Mantêm a prioridade alta
     for nome_grupo, info in db_condos.items():
         if info.get('tipo') == "separado_por_bloco":
             for portaria_cadastrada in info.get('portarias', []):
-                # Normaliza o que você cadastrou
                 p_cad_norm = normalizar_termos_condo(portaria_cadastrada)
-                
-                # Se Rua e Número batem exatamente
                 if rua_planilha in p_cad_norm and num_planilha in p_cad_norm:
-                    # Pega o termo que diferencia (ex: "BL C")
                     termo_cadastro = p_cad_norm.replace(rua_planilha, "").replace(num_planilha, "").strip()
-                    
-                    # TRAVA: O termo tem que estar INTEIRO e IGUAL no endereço da Shopee
-                    # Ex: Se termo_cadastro é "BL C", procuramos "BL C" no endereço normalizado
-                    if termo_cadastro and f" {termo_cadastro}" in f" {end_original_norm}":
-                        return portaria_cadastrada # Retorna o nome do seu cadastro
+                    if termo_cadastro and f" {termo_cadastro}" in f" {end_original}":
+                        return portaria_cadastrada
 
-    # 2. BUSCA POR MULTI-RUAS (Aba 3 - Caso 1)
+    # 3. REGRAS DE MULTI-RUAS (Aba 3)
     for info in db_condos.values():
         if info.get('tipo') == "multi_ruas":
             enderecos_lista = [normalizar_termos_condo(e) for e in info.get('enderecos', [])]
-            meu_end_norm = normalizar_termos_condo(f"{rua_planilha} {num_planilha}")
-            if meu_end_norm in enderecos_lista:
+            if normalizar_termos_condo(f"{rua_planilha} {num_planilha}") in enderecos_lista:
                 return str(info.get('portaria', '')).upper()
 
-    # 4. SE NÃO ACHOU NO CADASTRO: Identifica prédio genérico
-    padroes_predio = [
+    # 4. IDENTIFICA CONDOMÍNIO (APENAS COM PALAVRAS CHAVE REAIS)
+    # Removi as regex de "Letra+Numero" que causavam falsos positivos (como o EO de Terreo)
+    termos_condominio = [
         r'\bAP\b', r'\bAPT\b', r'\bAPTO\b', r'\bAPARTAMENTO\b',
-        r'\bBL\b', r'\bBLC\b', r'\bBLOCO\b', r'\bTORRE\b',
-        r'\b[A-Z]\d{2,4}\b',   # Captura A34, J34, B102
-        r'\b\d{2,4}[A-Z]\b'    # Captura 34A, 102B
+        r'\bBL\b', r'\bBLC\b', r'\bBLOCO\b', r'\bTORRE\b', 
+        r'\bEDIFICIO\b', r'\bED\b', r'\bCONDOMINIO\b', r'\bCD\b'
     ]
     
-    if any(re.search(p, end_original_norm) for p in padroes_predio):
+    if any(re.search(p, end_original) for p in termos_condominio):
         return f"{rua_planilha}, {num_planilha} CONDOMINIO"
 
-    # 4. CASO GERAL (Casa/Viela/Comércio)
-    return f"{rua_planilha}, {num_planilha}"
+    # 5. SE NÃO CAIU EM NADA ACIMA, É RUA COMUM
+    return montar_endereco_limpo(end_original, rua_planilha, num_planilha)
+
+def montar_endereco_limpo(texto_completo, rua, num):
+    """
+    Pega apenas o que vem após o número da casa para evitar 'sujeira' no nome da rua.
+    """
+    num_esc = re.escape(num)
+    # Procura o número e captura tudo o que vem depois
+    match = re.search(rf"\b{num_esc}\b\s*,?\s*(.*)", texto_completo, re.IGNORECASE)
+    
+    if match:
+        sobra = match.group(1).strip()
+        if sobra:
+            return f"{rua}, {num} {sobra}"
+    
+    return f"{rua}, {num}"
+
+def processar_caso_geral(texto_original, rua, num):
+    """Função auxiliar para montar o endereço sem a palavra CONDOMINIO"""
+    sobra = texto_original.replace(rua, "").replace(num, "").strip()
+    sobra = re.sub(r'^[,\-\s]+|[,\-\s]+$', '', sobra) 
+    
+    if sobra:
+        return f"{rua}, {num} {sobra}"
+    return f"{rua}, {num}"
 # -----------------------------
 # FORMATAÇÃO DE SEQUÊNCIA
 # -----------------------------
@@ -287,6 +377,7 @@ def processar_agrupamento(df_bruto, notas_vivas, db_condos):
     df = df_bruto.copy()
     
     # 1. Preparação de colunas base
+    df['Destination Address'] = df['Destination Address'].apply(converter_numero_da_rua_ate_100)
     df['Destination Address'] = df['Destination Address'].apply(limpar_duplicidade_numero)
     df['Num_Casa'] = df['Destination Address'].apply(extrair_numero)
     df['Rua_Base'] = df.apply(lambda r: limpar_rua_com_bairro(r['Destination Address'], r['Bairro']), axis=1)
@@ -315,30 +406,71 @@ def processar_agrupamento(df_bruto, notas_vivas, db_condos):
         if group_ids[i] == 0:
             group_ids[i] = curr
             for j in range(i+1, len(df)):
+                
+                # Dados para comparação
+                end_i = str(df.iloc[i]['Endereco_Formatado']).upper()
+                end_j = str(df.iloc[j]['Endereco_Formatado']).upper()
+                
+                # --- PASSO 1: REGRA DE OURO (CADASTRO MANUAL / ABA 3) ---
+                # Se um dos dois for um condomínio com separação por bloco/portaria,
+                # a comparação é EXATA. Se o nome formatado for diferente, NÃO JUNTA.
+                if df.iloc[i]['Separar_Bloco'] or df.iloc[j]['Separar_Bloco']:
+                    if end_i == end_j:
+                        group_ids[j] = curr
+                    continue # Pula para o próximo 'j', ignorando a trava de 20m
+
+                # --- PASSO 2: FILTRO DE NOTAS ---
                 if df.iloc[i]['Tem_Minha_Nota'] != df.iloc[j]['Tem_Minha_Nota']:
                     continue
+
+                # --- PASSO 3: TRAVA GEOGRÁFICA (20 METROS) ---
+                coord_i = (df.iloc[i]['Latitude'], df.iloc[i]['Longitude'])
+                coord_j = (df.iloc[j]['Latitude'], df.iloc[j]['Longitude'])
                 
-                num_i = str(df.iloc[i]['Num_Casa'])
-                num_j = str(df.iloc[j]['Num_Casa'])
+                distancia = 999
+                try:
+                    distancia = geodesic(coord_i, coord_j).meters
+                except:
+                    pass
+
+                # Se estiver a mais de 20m, verificamos se o Bairro/CEP batem (Segurança)
+                mesma_localidade = False
+                if distancia <= 20:
+                    mesma_localidade = True
+                else:
+                    b_i, b_j = str(df.iloc[i]['Bairro']).upper(), str(df.iloc[j]['Bairro']).upper()
+                    c_i, c_j = str(df.iloc[i]['Zipcode/Postal code']), str(df.iloc[j]['Zipcode/Postal code'])
+                    if b_i == b_j or c_i == c_j:
+                        mesma_localidade = True
+
+                if not mesma_localidade:
+                    continue
+
+                # --- PASSO 4: COMPARAÇÃO DE NOMES (VIELA / RUA / NÚMERO) ---
                 
-                if num_i == num_j and num_i != "":
-                    end_i = str(df.iloc[i]['Endereco_Formatado'])
-                    end_j = str(df.iloc[j]['Endereco_Formatado'])
-                    
-                    # --- A SOLUÇÃO DEFINITIVA ---
-                    
-                    # REGRA 1: Se o endereço veio de um cadastro seu (Aba 3), a comparação é EXATA.
-                    # (Isso impede que o Bloco B junte com o Bloco C na Rua Ema)
-                    if df.iloc[i]['Separar_Bloco'] or df.iloc[j]['Separar_Bloco']:
-                        if end_i == end_j:
+                # Função interna para extrair apenas os números (ex: 7B vira 7)
+                def apenas_numeros(s):
+                    return "".join(filter(str.isdigit, str(s)))
+
+                num_i_puro = apenas_numeros(df.iloc[i]['Num_Casa'])
+                num_j_puro = apenas_numeros(df.iloc[j]['Num_Casa'])
+                rua_i = str(df.iloc[i]['Rua_Base']).upper().strip()
+                rua_j = str(df.iloc[j]['Rua_Base']).upper().strip()
+
+                # 1. Regra Especial para VIELA / CAMINHO
+                # Agora ela aceita 7 e 7B se a Viela/Rua for a mesma
+                if any(p in end_i for p in ["VIELA", "CAMINHO"]):
+                    # Se o número base for igual (7 == 7) e a rua/viela for similar
+                    if num_i_puro == num_j_puro and num_i_puro != "":
+                        if rua_i == rua_j or SequenceMatcher(None, rua_i, rua_j).ratio() > 0.85:
                             group_ids[j] = curr
-                            
-                    # REGRA 2: Se NÃO está no seu cadastro de separação (é condomínio comum ou casa)
-                    # Usamos a similaridade de 0.85 para perdoar erros de "AP" vs "APTO" ou nomes de rua.
-                    else:
-                        if end_i == end_j or SequenceMatcher(None, end_i, end_j).ratio() > 0.85:
-                            group_ids[j] = curr
-                # -----------------------------
+                            continue # Juntou, vai para o próximo
+
+                # 2. Regra Geral (Casas de rua, Prédios não cadastrados)
+                # Também aplicamos a lógica de número puro para juntar 7 e 7B na mesma rua
+                if num_i_puro == num_j_puro and num_i_puro != "":
+                    if rua_i == rua_j or SequenceMatcher(None, rua_i, rua_j).ratio() > 0.90:
+                        group_ids[j] = curr
                 
             curr += 1
 
