@@ -5,4 +5,4 @@ numpy
 num2words
 geopy
 google-cloud-firestore
-google-oauth2
+google-auth
