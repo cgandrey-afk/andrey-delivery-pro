@@ -6,41 +6,46 @@ from difflib import SequenceMatcher
 from num2words import num2words
 from geopy.distance import geodesic
 import re
+import streamlit as st
+from google.cloud import firestore
+from google.oauth2 import service_account
 
-OBS_FILE = "observacoes.json"
-CONDO_FILE = "condominios.json"
-
-# -----------------------------
-# FUNÇÕES DE CARREGAMENTO
-# -----------------------------
-def carregar_obs():
-    if os.path.exists(OBS_FILE):
-        try:
-            with open(OBS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
-
-def salvar_obs(dic_obs):
-    with open(OBS_FILE, "w", encoding="utf-8") as f:
-        json.dump(dic_obs, f, indent=4, ensure_ascii=False)
-
-def carregar_json(arquivo):
-    if os.path.exists(arquivo):
-        try:
-            with open(arquivo, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
-
-def salvar_json(dados, arquivo):
+# --- NOVA CONEXÃO FIRESTORE ---
+def conectar_firestore():
     try:
-        with open(arquivo, "w", encoding="utf-8") as f:
-            json.dump(dados, f, indent=4, ensure_ascii=False)
+        creds_info = st.secrets["firestoredb"]
+        creds = service_account.Credentials.from_service_account_info(creds_info)
+        return firestore.Client(credentials=creds, project="fluxoderotas")
     except Exception as e:
-        print(f"Erro ao salvar JSON: {e}")
+        st.error(f"Erro ao conectar no banco: {e}")
+        return None
+
+db = conectar_firestore()
+
+# --- NOVAS FUNÇÕES DE NUVEM (FLUXODEROTAS) ---
+def carregar_dados_fluxoderotas(nome_documento):
+    try:
+        if db:
+            doc_ref = db.collection("fluxoderotas_config").document(nome_documento)
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict()
+        return {}
+    except:
+        return {}
+
+def salvar_dados_fluxoderotas(dados, nome_documento):
+    try:
+        if db:
+            doc_ref = db.collection("fluxoderotas_config").document(nome_documento)
+            doc_ref.set(dados)
+            return True
+        return False
+    except:
+        return False
+
+# --- MANTENHA TODAS AS SUAS OUTRAS FUNÇÕES ABAIXO (LIMPEZA, EXTRAÇÃO, AGRUPAMENTO) ---
+# eh_nome_rua_generico, converter_numero_da_rua_ate_100, processar_agrupamento, etc...
 
 # -----------------------------
 # LIMPEZA E EXTRAÇÃO
