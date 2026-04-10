@@ -1,15 +1,28 @@
 import streamlit as st
-from funcoes import *
+import re
+# Importamos as novas funções de nuvem e as de tratamento de texto do seu funcoes.py
+from funcoes import (
+    carregar_dados_fluxoderotas, 
+    salvar_dados_fluxoderotas,
+    normalizar_rua,
+    extrair_numero,
+    extrair_complemento_puro,
+    padronizar_complemento
+)
 
 def mostrar_aba_notas():
-    st.session_state.banco_notas = carregar_obs()
+    # BUSCA NA NUVEM em vez de arquivo local
+    st.session_state.banco_notas = carregar_dados_fluxoderotas("observacoes")
+    
     st.subheader("📝 Gerenciar Notas")
     
     lista_opcoes = ["-- Selecione um endereço --"] + st.session_state.enderecos_planilha if st.session_state.enderecos_planilha else ["-- Planilha não carregada --"]
     endereco_selecionado = st.selectbox("📍 Buscar da Planilha:", lista_opcoes)
     
     if endereco_selecionado and endereco_selecionado not in ["-- Selecione um endereço --", "-- Planilha não carregada --"]:
-        rua_sug, num_sug, comp_sug = normalizar_rua(endereco_selecionado), extrair_numero(endereco_selecionado), extrair_complemento_puro(endereco_selecionado)
+        rua_sug = normalizar_rua(endereco_selecionado)
+        num_sug = extrair_numero(endereco_selecionado)
+        comp_sug = extrair_complemento_puro(endereco_selecionado)
     else:
         rua_sug, num_sug, comp_sug = "", "", ""
 
@@ -22,12 +35,17 @@ def mostrar_aba_notas():
         
         if st.form_submit_button("➕ Salvar Nota"):
             if rua_in and num_in and obs_in:
-                banco = carregar_obs()
+                # Carrega o estado atual da nuvem
+                banco = carregar_dados_fluxoderotas("observacoes")
                 chave = f"{rua_in}|{num_in}|{padronizar_complemento(comp_in)}"
                 banco[chave] = obs_in
-                salvar_obs(banco)
-                st.success("Nota salva!")
-                st.rerun()
+                
+                # SALVA NA NUVEM (Firestore)
+                if salvar_dados_fluxoderotas(banco, "observacoes"):
+                    st.success("Nota salva na nuvem!")
+                    st.rerun()
+                else:
+                    st.error("Erro ao salvar no banco de dados.")
 
     st.divider()
     
@@ -38,6 +56,7 @@ def mostrar_aba_notas():
         c_head2.markdown("**📍 ENDEREÇO**")
         st.write("---")
 
+        # Listamos o que veio do Firestore
         for chave, nota in list(st.session_state.banco_notas.items()):
             try:
                 partes = chave.split('|')
@@ -51,9 +70,13 @@ def mostrar_aba_notas():
                 col_end.markdown(f"{end_visual}")
                 
                 if col_del.button("🗑️ Apagar", key=f"del_v5_{chave}"):
-                    banco_atual = carregar_obs()
+                    # Remove da nuvem
+                    banco_atual = carregar_dados_fluxoderotas("observacoes")
                     if chave in banco_atual:
                         del banco_atual[chave]
-                        salvar_obs(banco_atual)
-                    st.rerun()
-            except: continue
+                        if salvar_dados_fluxoderotas(banco_atual, "observacoes"):
+                            st.rerun()
+                        else:
+                            st.error("Erro ao apagar do banco.")
+            except: 
+                continue
