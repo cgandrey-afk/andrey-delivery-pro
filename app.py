@@ -7,6 +7,128 @@ from funcoes import (
     aplicar_formatacao_final
 )
 
+# --- CONFIGURAÇÃO DA PÁGINA (Inicia minimizado com 'collapsed') ---
+st.set_page_config(
+    page_title="Fluxo de Rotas", 
+    layout="wide", 
+    initial_sidebar_state="collapsed" # <-- ISSO FAZ ELE INICIAR FECHADO
+)
+
+# --- CSS PARA O PERFIL E BOTÃO VERMELHO ---
+st.markdown("""
+    <style>
+    /* Estilo do Perfil no Menu Lateral */
+    .user-profile {
+        display: flex;
+        align-items: center;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 12px;
+        margin-bottom: 20px;
+        border: 1px solid #ddd;
+    }
+    .user-photo {
+        width: 55px;
+        height: 55px;
+        border-radius: 50%; /* Faz o círculo */
+        object-fit: cover;
+        margin-right: 15px;
+        border: 2px solid #ff4b4b;
+    }
+    .user-info {
+        display: flex;
+        flex-direction: column;
+    }
+    .user-name {
+        font-weight: bold;
+        color: #31333F;
+        font-size: 16px;
+    }
+    .user-status {
+        font-size: 12px;
+        color: #28a745;
+    }
+
+    /* Forçar Botão de Processamento em Vermelho */
+    div.stButton > button[kind="primary"] {
+        background-color: #ff4b4b;
+        color: white;
+        font-weight: bold;
+        border: none;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- LÓGICA DO MENU LATERAL (DRAWER) ---
+with st.sidebar:
+    st.title("⚙️ Configurações")
+    
+    if 'logado' not in st.session_state:
+        st.session_state.logado = False
+    if 'mostrar_form' not in st.session_state:
+        st.session_state.mostrar_form = False
+
+    if st.session_state.logado:
+        # --- PERFIL LOGADO ---
+        foto_url = "https://www.w3schools.com/howto/img_avatar.png" 
+        st.markdown(f"""
+            <div class="user-profile">
+                <img src="{foto_url}" class="user-photo">
+                <div class="user-info">
+                    <span class="user-name">Andrey Junior</span>
+                    <span class="user-status">● Online</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Sair da Conta", use_container_width=True):
+            st.session_state.logado = False
+            st.session_state.mostrar_form = False
+            st.rerun()
+
+    elif st.session_state.mostrar_form:
+        # --- FORMULÁRIO DE LOGIN ---
+        st.markdown("### 🔐 Entrar na Conta")
+        
+        with st.form("login_form"):
+            user = st.text_input("Usuário")
+            password = st.text_input("Senha", type="password")
+            submit = st.form_submit_button("ENTRAR", use_container_width=True)
+            
+            if submit:
+                # Aqui você valida a senha (exemplo simples)
+                if user == "admin" and password == "123":
+                    st.session_state.logado = True
+                    st.session_state.mostrar_form = False
+                    st.rerun()
+                else:
+                    st.error("Usuário ou senha incorretos")
+
+        st.markdown("<p style='text-align: center;'>ou</p>", unsafe_allow_html=True)
+        
+        # Botão Google (Visualmente diferente)
+        if st.button("🔵 Fazer login com Google", use_container_width=True):
+            st.info("Conectando ao Google API...")
+            # Lógica de integração Google iria aqui
+            
+        if st.button("⬅️ Voltar"):
+            st.session_state.mostrar_form = False
+            st.rerun()
+
+    else:
+        # --- TELA INICIAL DO MENU (DESLOGADO) ---
+        st.info("Acesse sua conta para sincronizar dados.")
+        if st.button("🔑 Fazer Login", type="primary", use_container_width=True):
+            st.session_state.mostrar_form = True
+            st.rerun()
+
+    st.divider()
+    st.write("🔧 **Preferências do App**")
+    st.toggle("Modo de Alta Precisão (GPS)")
+    st.caption("Versão 5.3.0 - Campinas/SP")
+
+# --- O RESTO DO SEU APP CONTINUA ABAIXO ---
+# tab1, tab2 = st.tabs(["🚀 Processamento", "🏢 Condomínios"])
 # Configuração inicial
 st.set_page_config(page_title="Gerenciador de Rotas", layout="wide", page_icon="🚚")
 
