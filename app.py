@@ -2,19 +2,31 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from funcoes import (
-    carregar_dados_fluxoderotas,  # Chamada da nuvem
+    carregar_dados_fluxoderotas,
     processar_agrupamento,
     aplicar_formatacao_final
-)
 
-# --- CONFIGURAÇÃO DA PÁGINA (Inicia minimizado com 'collapsed') ---
+)
+from interface_condos import mostrar_aba_condos
+from interface_notas import mostrar_aba_notas
+
+# --- 1. CONFIGURAÇÃO DA PÁGINA (Sempre o primeiro comando) ---
 st.set_page_config(
-    page_title="Fluxo de Rotas", 
+    page_title="Gerenciador de Rotas", 
     layout="wide", 
-    initial_sidebar_state="collapsed" # <-- ISSO FAZ ELE INICIAR FECHADO
+    page_icon="🚚",
+    initial_sidebar_state="collapsed"
 )
 
-# --- CSS PARA O PERFIL E BOTÃO VERMELHO ---
+# --- 2. INICIALIZAÇÃO DO SESSION STATE ---
+if 'logado' not in st.session_state:
+    st.session_state.logado = False
+if 'mostrar_form' not in st.session_state:
+    st.session_state.mostrar_form = False
+if 'enderecos_planilha' not in st.session_state:
+    st.session_state.enderecos_planilha = []
+
+# --- 3. CSS CUSTOMIZADO (Perfil, Botão Vermelho e Layout) ---
 st.markdown("""
     <style>
     /* Estilo do Perfil no Menu Lateral */
@@ -30,7 +42,7 @@ st.markdown("""
     .user-photo {
         width: 55px;
         height: 55px;
-        border-radius: 50%; /* Faz o círculo */
+        border-radius: 50%;
         object-fit: cover;
         margin-right: 15px;
         border: 2px solid #ff4b4b;
@@ -49,27 +61,26 @@ st.markdown("""
         color: #28a745;
     }
 
-    /* Forçar Botão de Processamento em Vermelho */
+    /* Botão Primário Vermelho */
     div.stButton > button[kind="primary"] {
         background-color: #ff4b4b;
         color: white;
         font-weight: bold;
         border: none;
     }
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #ff1a1a;
+        color: white;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- LÓGICA DO MENU LATERAL (DRAWER) ---
+# --- 4. SIDEBAR (MENU LATERAL / DRAWER) ---
 with st.sidebar:
     st.title("⚙️ Configurações")
     
-    if 'logado' not in st.session_state:
-        st.session_state.logado = False
-    if 'mostrar_form' not in st.session_state:
-        st.session_state.mostrar_form = False
-
     if st.session_state.logado:
-        # --- PERFIL LOGADO ---
+        # Perfil do Usuário Logado
         foto_url = "https://www.w3schools.com/howto/img_avatar.png" 
         st.markdown(f"""
             <div class="user-profile">
@@ -87,16 +98,15 @@ with st.sidebar:
             st.rerun()
 
     elif st.session_state.mostrar_form:
-        # --- FORMULÁRIO DE LOGIN ---
+        # Formulário de Login
         st.markdown("### 🔐 Entrar na Conta")
-        
         with st.form("login_form"):
             user = st.text_input("Usuário")
             password = st.text_input("Senha", type="password")
             submit = st.form_submit_button("ENTRAR", use_container_width=True)
             
             if submit:
-                # Aqui você valida a senha (exemplo simples)
+                # Validação simples (Substituir por sua lógica real se necessário)
                 if user == "admin" and password == "123":
                     st.session_state.logado = True
                     st.session_state.mostrar_form = False
@@ -104,19 +114,17 @@ with st.sidebar:
                 else:
                     st.error("Usuário ou senha incorretos")
 
-        st.markdown("<p style='text-align: center;'>ou</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; margin:0;'>ou</p>", unsafe_allow_html=True)
         
-        # Botão Google (Visualmente diferente)
         if st.button("🔵 Fazer login com Google", use_container_width=True):
             st.info("Conectando ao Google API...")
-            # Lógica de integração Google iria aqui
             
         if st.button("⬅️ Voltar"):
             st.session_state.mostrar_form = False
             st.rerun()
 
     else:
-        # --- TELA INICIAL DO MENU (DESLOGADO) ---
+        # Tela Deslogada
         st.info("Acesse sua conta para sincronizar dados.")
         if st.button("🔑 Fazer Login", type="primary", use_container_width=True):
             st.session_state.mostrar_form = True
@@ -127,40 +135,13 @@ with st.sidebar:
     st.toggle("Modo de Alta Precisão (GPS)")
     st.caption("Versão 5.3.0 - Campinas/SP")
 
-# --- O RESTO DO SEU APP CONTINUA ABAIXO ---
-# tab1, tab2 = st.tabs(["🚀 Processamento", "🏢 Condomínios"])
-# Configuração inicial
-st.set_page_config(page_title="Gerenciador de Rotas", layout="wide", page_icon="🚚")
-
-if 'enderecos_planilha' not in st.session_state:
-    st.session_state.enderecos_planilha = []
-
+# --- 5. CONTEÚDO PRINCIPAL ---
 st.title("🚚 Gerenciador de Rotas")
 
-tab1, tab2, tab3 = st.tabs([
-    "📋 Processar Planilha",
-    "📝 Gerenciar Notas",
-    "🏢 Condomínios Agrupados"
-])
+tab1, tab2, tab3 = st.tabs(["🚀 Processamento", "🏢 Condomínios", "📝 Notas"])
 
+# --- ABA 1: PROCESSAMENTO ---
 with tab1:
-    # Mantemos o CSS para o botão vermelho, mas ajustamos para não forçar largura total 
-    # a menos que você queira. Removi o 'width: 100%' para ele respeitar o alinhamento natural.
-    st.markdown("""
-        <style>
-        div.stButton > button[kind="primary"] {
-            background-color: #ff4b4b;
-            color: white;
-            border: none;
-            font-weight: bold;
-        }
-        div.stButton > button[kind="primary"]:hover {
-            background-color: #ff1a1a;
-            color: white;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
     arquivo = st.file_uploader("1. Carregar Planilha", type=['xlsx', 'csv'], key="up_v5")
 
     if arquivo:
@@ -175,9 +156,9 @@ with tab1:
                 st.session_state.enderecos_planilha = novos
                 st.rerun()
 
-        # Botão alinhado à esquerda (padrão)
         if st.button("🚀 Processar e Agrupar AGORA", type="primary"):
             with st.spinner("Buscando dados na nuvem e processando rotas..."):
+                # Busca dados no Firestore através das funções importadas
                 notas_vivas = carregar_dados_fluxoderotas("observacoes")
                 db_condos = carregar_dados_fluxoderotas("condominios")
 
@@ -189,10 +170,9 @@ with tab1:
                 ]
 
                 st.success("✅ Processamento concluído!")
-                
-                # Tabela pegando a tela toda (use_container_width=True)
                 st.dataframe(df_f[cols_final], use_container_width=True)
 
+                # Preparação do arquivo para Download
                 data_str = datetime.now().strftime("%d-%m-%Y")
                 nome_base = arquivo.name.split('.')[0]
                 nome_final = f"Entregas {data_str} {nome_base}.csv"
@@ -204,14 +184,26 @@ with tab1:
                     data=csv,
                     file_name=nome_final,
                     mime="text/csv",
-                    use_container_width=True # Botão de download também largo para facilitar
+                    use_container_width=True
                 )
-                
-                
-with tab2:
-    import interface_notas
-    interface_notas.mostrar_aba_notas()
 
+# --- ABA 2: CONDOMÍNIOS (PROTEGIDA) ---
+with tab2:
+    if st.session_state.logado:
+        mostrar_aba_condos()
+    else:
+        st.warning("### 🔒 Acesso Restrito")
+        st.info("Para gerenciar o cadastro de condomínios na nuvem, você precisa estar logado.")
+        if st.button("Ir para Login", key="btn_login_condo"):
+            st.info("Clique no ícone de 3 linhas no canto superior esquerdo para entrar.")
+
+# --- ABA 3: NOTAS/OBSERVAÇÕES ---
 with tab3:
-    import interface_condos
-    interface_condos.mostrar_aba_condos()
+    if st.session_state.logado:
+        # Chama a interface completa com checkboxes e campo de endereço único
+        mostrar_aba_notas()
+    else:
+        st.warning("### 🔒 Acesso Restrito")
+        st.info("O banco de observações só pode ser editado por usuários autenticados.")
+        if st.button("Ir para Login", key="btn_login_notas"):
+            st.info("Clique no ícone de 3 linhas no canto superior esquerdo para entrar.")
