@@ -24,6 +24,10 @@ if 'id_sessao' not in st.session_state:
 # --- 3. INTERFACE LATERAL ---
 aba_selecionada = mostrar_sidebar()
 
+# --- 4. VERIFICAÇÃO DE LOGIN ---
+# ESTA LINHA ABAIXO DEVE ESTAR TOTALMENTE À ESQUERDA (SEM ESPAÇOS ANTES)
+logado = st.session_state.get('logado', False)
+
 # --- 4. BANNERS INFORMATIVOS ---
 if not st.session_state.get('logado'):
     st.markdown("""
