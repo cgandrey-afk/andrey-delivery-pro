@@ -19,7 +19,7 @@ def mostrar_sidebar():
     if not logado and not logout_feito:
         token = cookie_manager.get(cookie="auth_fluxo")
         if token is None:
-            time.sleep(0.1)
+            time.sleep(0.5)  # Aumente de 0.1 para 0.5 para dar tempo no celular
             token = cookie_manager.get(cookie="auth_fluxo")
             
         if token == "admin_validado":
