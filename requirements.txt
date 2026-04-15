@@ -6,3 +6,5 @@ num2words
 geopy
 google-cloud-firestore
 google-auth
+streamlit-cookies-manager
+extra-streamlit-components
