@@ -14,21 +14,19 @@ st.set_page_config(
     page_icon="🚚"
 )
 
-# --- 2. GERADOR DE ID DE SESSÃO ---
+
+
+# --- 3. GERADOR DE ID DE SESSÃO ---
 if 'id_sessao' not in st.session_state:
     st.session_state.id_sessao = datetime.now().timestamp()
     st.session_state.mostrar_form = False  
     if 'logado' not in st.session_state:
         st.session_state.logado = False
 
-# --- 3. INTERFACE LATERAL ---
+# --- 4. INTERFACE LATERAL ---
 aba_selecionada = mostrar_sidebar()
 
-# --- 4. VERIFICAÇÃO DE LOGIN ---
-# ESTA LINHA ABAIXO DEVE ESTAR TOTALMENTE À ESQUERDA (SEM ESPAÇOS ANTES)
-logado = st.session_state.get('logado', False)
-
-# --- 4. BANNERS INFORMATIVOS ---
+# --- 5. BANNERS INFORMATIVOS ---
 if not st.session_state.get('logado'):
     st.markdown("""
         <div style="background: linear-gradient(90deg, #ff4b4b 0%, #ff8585 100%); padding: 10px 20px; border-radius: 12px; color: white; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-left: 4px solid #fff;">
@@ -48,17 +46,15 @@ else:
         </div>
     """, unsafe_allow_html=True)
 
-# --- 5. NAVEGAÇÃO ---
-
+# --- 6. NAVEGAÇÃO ---
 if st.session_state.get("pagina_atual") == "cadastro":
-    from criacao_conta import mostrar_tela_cadastro
-    mostrar_tela_cadastro()
-    
-    
-
+    #Esse mostra a tela de cadastro
+    #from criacao_conta import mostrar_tela_cadastro 
+    #mostrar_tela_cadastro()
+    # Esse mostra a tela de manuençao ao inves de cadastro
+    from manutencao import mostrar_tela_manutencao 
+    mostrar_tela_manutencao()
 else:
-    # TUDO O QUE VEM ABAIXO AGORA ESTÁ DENTRO DO ELSE (IDENTADO)
-    
     # ABA 1: INÍCIO
     if aba_selecionada == "🏠 Início" or aba_selecionada is None:
         st.title("🚀 Processamento de Rotas")

@@ -10,6 +10,40 @@ import streamlit as st
 from google.cloud import firestore
 from google.oauth2 import service_account
 
+
+import hashlib
+
+def criptografar_senha(senha):
+    """Transforma a senha em um código embaralhado (Hash)"""
+    return hashlib.sha256(senha.encode()).hexdigest()
+
+def verificar_email_existente(email):
+    """Busca se o e-mail já existe no Firestore"""
+    try:
+        if db:
+            # O e-mail é o ID do documento
+            doc = db.collection("usuarios").document(email.lower().strip()).get()
+            return doc.exists
+        return False
+    except Exception as e:
+        st.error(f"Erro ao consultar e-mail: {e}")
+        return False
+
+# No funcoes.py
+def criar_novo_usuario(dados):
+    try:
+        if db:
+            # Se não enviou nível, define usuario
+            if 'nivel' not in dados:
+                dados['nivel'] = 'usuario'
+            
+            dados['senha'] = criptografar_senha(dados['senha'])
+            db.collection("usuarios").document(dados['email']).set(dados)
+            return True
+        return False
+    except:
+        return False
+
 # --- NOVA CONEXÃO FIRESTORE ---
 def conectar_firestore():
     try:
@@ -585,3 +619,8 @@ def processar_agrupamento(df_bruto, notas_vivas, db_condos):
     )
 
     return df_agrupado
+
+
+
+
+#-----------------------------------
