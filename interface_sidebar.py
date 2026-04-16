@@ -1,6 +1,8 @@
 import streamlit as st
 import extra_streamlit_components as stx
 import time
+import datetime 
+from datetime import timedelta
 
 def mostrar_sidebar():
     # 1. Inicializa o gerenciador de cookies
@@ -58,10 +60,21 @@ def mostrar_sidebar():
             st.divider()
             
             if st.button("Sair da Conta", use_container_width=True):
-                st.session_state.logout_feito = True
+                # 1. Primeiro limpamos a memória imediata
                 st.session_state.logado = False
+                st.session_state.usuario_nome = None
+                st.session_state.logout_feito = True  # <--- IMPORTANTE
                 st.session_state.pagina_atual = "home"
+                
+                # 2. Comando para o navegador DELETAR o cookie
                 cookie_manager.delete("auth_fluxo")
+                
+                st.info("Desconectando com segurança...")
+                
+                # 3. O Pulo do Gato: Esperar o Chrome do celular processar a exclusão
+                time.sleep(1.5) 
+                
+                # 4. Recarrega a página já sem o cookie
                 st.rerun()
 
         elif st.session_state.get('mostrar_form'):
@@ -76,39 +89,45 @@ def mostrar_sidebar():
                 
                 if submit:
                     from funcoes import db, criptografar_senha
-                    with st.spinner("Autenticando..."):
-                        try:
-                            # Limpeza total para evitar erros de teclado de celular
-                            email_limpo = user_email.lower().strip()
-                            senha_limpa = password.strip()
+                    # 1. LIMPEZA DOS INPUTS
+                    email_limpo = user_email.lower().strip()
+                    senha_limpa = password.strip()
+
+                    try:
+                        user_ref = db.collection("usuarios").document(email_limpo)
+                        doc = user_ref.get()
+                        
+                        if doc.exists:
+                            dados = doc.to_dict()
+                            senha_hash = criptografar_senha(senha_limpa)
                             
-                            user_ref = db.collection("usuarios").document(email_limpo)
-                            doc = user_ref.get()
-                            
-                            if doc.exists:
-                                dados = doc.to_dict()
-                                senha_hash = criptografar_senha(senha_limpa)
+                            if senha_hash == dados.get('senha'):
+                                # --- ORDEM DE EXECUÇÃO CORRIGIDA ---
                                 
-                                if senha_hash == dados.get('senha'):
-                                    # SALVA COOKIE PARA O CHROME LEMBRAR
-                                    cookie_manager.set("auth_fluxo", email_limpo)
-                                    
-                                    st.session_state.logado = True
-                                    st.session_state.usuario_nome = dados.get('nome')
-                                    st.session_state.nivel_acesso = dados.get('nivel', 'usuario')
-                                    st.session_state.mostrar_form = False
-                                    st.session_state.logout_feito = False
-                                    st.session_state.pagina_atual = "home"
-                                    
-                                    st.success(f"Bem-vindo!")
-                                    time.sleep(0.5)
-                                    st.rerun()
-                                else:
-                                    st.error("Senha incorreta.")
+                                # Primeiro: Define o Cookie (Damos prioridade para a gravação física)
+                                validade = datetime.datetime.now() + datetime.timedelta(days=30)
+                                cookie_manager.set("auth_fluxo", email_limpo, expires_at=validade)
+                                
+                                # Segundo: Define a sessão na memória
+                                st.session_state.logado = True
+                                st.session_state.usuario_nome = dados.get('nome')
+                                st.session_state.nivel_acesso = dados.get('nivel', 'usuario')
+                                st.session_state.mostrar_form = False
+                                st.session_state.pagina_atual = "home"
+                                
+                                st.success("✅ Autenticado com sucesso!")
+                                
+                                # Terceiro: Um tempo maior de espera ANTES do rerun
+                                # Isso evita que o rerun interrompa a gravação do cookie
+                                time.sleep(1.5) 
+                                st.rerun()
                             else:
-                                st.error("Usuário não encontrado.")
-                        except Exception as e:
-                            st.error(f"Erro de conexão.")
+                                st.error("Senha incorreta.")
+                        else:
+                            st.error("Usuário não encontrado.")
+                    except Exception as e:
+                        # Se der erro aqui, vamos ver o que é exatamente
+                        st.error(f"Aviso técnico: {e}")
 
             if st.button("⬅️ Voltar"):
                 st.session_state.mostrar_form = False
