@@ -76,13 +76,30 @@ def mostrar_sidebar():
             menu = st.radio("Navegação", ["🏠 Início", "📝 Gerenciar Notas", "🏢 Condomínios"])
             st.divider()
             
+            # Criamos um espaço vazio para mensagens de status da sidebar
+            status_logout = st.empty()
+
             if st.button("Sair da Conta", use_container_width=True):
+                # 1. FEEDBACK VISUAL IMEDIATO (Para o celular não parecer travado)
+                status_logout.markdown("""
+                    <div style='text-align: center; padding: 10px; background-color: #ffebee; border-radius: 5px;'>
+                        <p style='color: #c62828; margin: 0; font-weight: bold;'>Encerrando sessão...</p>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # 2. Limpa a memória interna
                 st.session_state.logado = False
-                st.session_state.logout_feito = True 
+                st.session_state.usuario_nome = None
+                st.session_state.logout_feito = True
                 st.session_state.pagina_atual = "home"
+                
+                # 3. Deleta o cookie
                 cookie_manager.delete("auth_fluxo")
-                st.info("Desconectando...")
-                time.sleep(1.5) 
+                
+                # 4. Espera o tempo necessário para o Chrome processar
+                time.sleep(1.2)
+                
+                # 5. Força a atualização final
                 st.rerun()
 
         elif st.session_state.get('mostrar_form'):
