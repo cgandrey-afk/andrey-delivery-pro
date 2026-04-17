@@ -7,16 +7,10 @@ import uuid
 
 
 def mostrar_sidebar():
-    # --- 1. INICIALIZAÇÃO ÚNICA DO GERENCIADOR ---
-    # Isso impede o Streamlit de tentar criar o componente de novo a cada rerun
-    # --- 1. INICIALIZAÇÃO ÚNICA DO GERENCIADOR ---
-    if "cookie_manager" not in st.session_state:
-        st.session_state.cookie_manager = stx.CookieManager(key="auth_final_fix_1704")
-        time.sleep(0.8) # Dá tempo para o componente "assentar" no Cloud
+    st.session_state.cookie_manager = stx.CookieManager(key="cookie_manager_v12")
     
     cookie_manager = st.session_state.cookie_manager
-    # ---------------------------------------------
-
+    time.sleep(0.8)
     # --- 1. INICIALIZAÇÃO DE SEGURANÇA ---
     # Se a página acabou de ser atualizada (F5), garantimos que as travas existam
     if "logout_feito" not in st.session_state:
