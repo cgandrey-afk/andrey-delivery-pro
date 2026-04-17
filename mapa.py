@@ -20,33 +20,42 @@ def mostrar_aba_mapa(df):
     if 'mapa_id' not in st.session_state:
         st.session_state.mapa_id = 0
 
-    # --- 2. CONFIGURAÇÃO DO MAPA (ESTILO CLEAN + ROTAÇÃO) ---
+    # --- 2. CONFIGURAÇÃO DO MAPA (COM ROTAÇÃO REAL) ---
     parada_selecionada = df.iloc[st.session_state.indice_parada]
     
+    # Criamos o mapa base
     m = folium.Map(
         location=[parada_selecionada['Latitude'], parada_selecionada['Longitude']], 
         zoom_start=16,
         tiles="CartoDB positron",
-        rotate=True,         # Permite girar o mapa
-        touch_rotate=True    # Habilita rotação com 2 dedos no celular
+        # Adicionamos essas opções de controle para permitir o toque
+        control_scale=True
     )
 
-    # Botão de GPS em tempo real
-    LocateControl(
-        auto_start=False, 
-        fly_to=True, 
-        keep_current_zoom_level=True,
-        strings={"title": "Minha Posição"}
-    ).add_to(m)
+    # GPS em tempo real
+    LocateControl(auto_start=False, fly_to=True, keep_current_zoom_level=True).add_to(m)
 
-    # --- 3. DESENHO DOS MARCADORES (NÚMERO DA PARADA 1, 2, 3...) ---
+    # SCRIPT EXTRA PARA FORÇAR A ROTAÇÃO NO CELULAR (Giro com 2 dedos)
+    # Isso injeta um comando no mapa para liberar o giro que o Folium trava por padrão
+    m.get_root().html.add_child(folium.Element("""
+        <script>
+            var map_element = document.querySelector('.folium-map');
+            if (map_element) {
+                var map = map_element.map;
+                map.touchZoom.rotate = true;
+                map.touchRotate.enable();
+            }
+        </script>
+    """))
+
+    # --- 3. MARCADORES ---
     for i, row in df.iterrows():
         if i in st.session_state.entregas_concluidas:
-            cor_pino = "#2ecc71" # Verde
+            cor_pino = "#2ecc71" 
         elif i == st.session_state.indice_parada:
-            cor_pino = "#e74c3c" # Vermelho
+            cor_pino = "#e74c3c" 
         else:
-            cor_pino = "#3498db" # Azul
+            cor_pino = "#3498db" 
 
         folium.Marker(
             [row['Latitude'], row['Longitude']],
@@ -56,7 +65,7 @@ def mostrar_aba_mapa(df):
             )
         ).add_to(m)
 
-    # --- 4. RENDERIZAÇÃO COM KEY DINÂMICA (EVITA DELAY VISUAL) ---
+    # --- 4. RENDERIZAÇÃO ---
     mapa_dados = st_folium(
         m, 
         width="100%", 
@@ -65,22 +74,21 @@ def mostrar_aba_mapa(df):
         returned_objects=["last_object_clicked_tooltip"]
     )
 
-    # --- 5. LÓGICA DE CLIQUE NO BALÃO ---
+    # --- 5. LOGICA DE CLIQUE ---
     if mapa_dados and mapa_dados.get("last_object_clicked_tooltip"):
         tooltip = mapa_dados["last_object_clicked_tooltip"]
         try:
             novo_indice = int(tooltip.replace("Entrega ", ""))
             if novo_indice != st.session_state.indice_parada:
                 st.session_state.indice_parada = novo_indice
-                st.session_state.mapa_id += 1 # Muda a key para atualizar a cor na hora
+                st.session_state.mapa_id += 1 
                 st.rerun()
         except:
             pass
 
-    # --- 6. CARD DE INFORMAÇÕES (ALTO CONTRASTE) ---
+    # --- 6. CARD DE INFORMAÇÕES (MANTIDO) ---
     parada_atual = df.iloc[st.session_state.indice_parada]
     total_total = len(df)
-    # Puxa o dado da coluna 'Sequence' para o ícone de pacotes
     info_sequence = parada_atual.get('Sequence', 'N/A') 
 
     st.markdown("""
@@ -125,7 +133,7 @@ def mostrar_aba_mapa(df):
         </div>
     """, unsafe_allow_html=True)
 
-    # --- 7. BOTÕES DE AÇÃO ---
+    # BOTÕES DE AÇÃO E NAVEGAÇÃO (MANTIDOS)
     c1, c2 = st.columns(2)
     with c1:
         link_waze = f"https://waze.com/ul?ll={parada_atual['Latitude']},{parada_atual['Longitude']}&navigate=yes"
@@ -145,7 +153,6 @@ def mostrar_aba_mapa(df):
                 st.session_state.mapa_id += 1
                 st.rerun()
 
-    # --- 8. NAVEGAÇÃO MANUAL ---
     nav1, nav2 = st.columns(2)
     if nav1.button("⬅️ ANTERIOR", use_container_width=True):
         if st.session_state.indice_parada > 0:
