@@ -195,6 +195,6 @@ def mostrar_sidebar():
             menu = "🏠 Início"
 
         st.divider()
-        st.caption("Versão 5.6.1 - ID Test")
+        st.caption("Versão 5.6.1 - BETA")
         
     return menu
