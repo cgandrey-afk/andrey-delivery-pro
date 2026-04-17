@@ -9,8 +9,10 @@ import uuid
 def mostrar_sidebar():
     # --- 1. INICIALIZAÇÃO ÚNICA DO GERENCIADOR ---
     # Isso impede o Streamlit de tentar criar o componente de novo a cada rerun
+    # --- 1. INICIALIZAÇÃO ÚNICA DO GERENCIADOR ---
     if "cookie_manager" not in st.session_state:
-        st.session_state.cookie_manager = stx.CookieManager(key="gerenciador_fluxo_v2026")
+        st.session_state.cookie_manager = stx.CookieManager(key="auth_final_fix_1704")
+        time.sleep(0.8) # Dá tempo para o componente "assentar" no Cloud
     
     cookie_manager = st.session_state.cookie_manager
     # ---------------------------------------------
