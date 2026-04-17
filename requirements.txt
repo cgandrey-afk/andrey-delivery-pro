@@ -9,3 +9,4 @@ google-auth
 streamlit-cookies-manager
 extra-streamlit-components
 streamlit-folium
+folium
