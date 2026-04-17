@@ -17,22 +17,29 @@ def mostrar_aba_mapa(df):
         st.session_state.indice_parada = 0
     if 'entregas_concluidas' not in st.session_state:
         st.session_state.entregas_concluidas = set()
-    # Criamos um ID para o mapa que muda quando clicamos
     if 'mapa_id' not in st.session_state:
         st.session_state.mapa_id = 0
 
-    # --- 2. CONFIGURAÇÃO DO MAPA ---
+    # --- 2. CONFIGURAÇÃO DO MAPA (ESTILO CLEAN + ROTAÇÃO) ---
     parada_selecionada = df.iloc[st.session_state.indice_parada]
     
     m = folium.Map(
         location=[parada_selecionada['Latitude'], parada_selecionada['Longitude']], 
         zoom_start=16,
-        tiles="CartoDB positron" 
+        tiles="CartoDB positron",
+        rotate=True,         # Permite girar o mapa
+        touch_rotate=True    # Habilita rotação com 2 dedos no celular
     )
 
-    LocateControl(auto_start=False, fly_to=True, keep_current_zoom_level=True).add_to(m)
+    # Botão de GPS em tempo real
+    LocateControl(
+        auto_start=False, 
+        fly_to=True, 
+        keep_current_zoom_level=True,
+        strings={"title": "Minha Posição"}
+    ).add_to(m)
 
-    # --- 3. DESENHO DOS MARCADORES ---
+    # --- 3. DESENHO DOS MARCADORES (NÚMERO DA PARADA 1, 2, 3...) ---
     for i, row in df.iterrows():
         if i in st.session_state.entregas_concluidas:
             cor_pino = "#2ecc71" # Verde
@@ -49,8 +56,7 @@ def mostrar_aba_mapa(df):
             )
         ).add_to(m)
 
-    # --- 4. RENDERIZAÇÃO COM CHAVE DINÂMICA ---
-    # A key muda quando o ID do mapa muda, forçando o refresh visual imediato
+    # --- 4. RENDERIZAÇÃO COM KEY DINÂMICA (EVITA DELAY VISUAL) ---
     mapa_dados = st_folium(
         m, 
         width="100%", 
@@ -59,21 +65,22 @@ def mostrar_aba_mapa(df):
         returned_objects=["last_object_clicked_tooltip"]
     )
 
-    # --- 5. LOGICA DE CLIQUE CORRIGIDA ---
+    # --- 5. LÓGICA DE CLIQUE NO BALÃO ---
     if mapa_dados and mapa_dados.get("last_object_clicked_tooltip"):
         tooltip = mapa_dados["last_object_clicked_tooltip"]
         try:
             novo_indice = int(tooltip.replace("Entrega ", ""))
             if novo_indice != st.session_state.indice_parada:
                 st.session_state.indice_parada = novo_indice
-                st.session_state.mapa_id += 1 # Muda o ID para resetar o componente visual
+                st.session_state.mapa_id += 1 # Muda a key para atualizar a cor na hora
                 st.rerun()
         except:
             pass
 
-    # --- 6. CARD DE INFORMAÇÕES (TODO O LAYOUT MANTIDO) ---
+    # --- 6. CARD DE INFORMAÇÕES (ALTO CONTRASTE) ---
     parada_atual = df.iloc[st.session_state.indice_parada]
     total_total = len(df)
+    # Puxa o dado da coluna 'Sequence' para o ícone de pacotes
     info_sequence = parada_atual.get('Sequence', 'N/A') 
 
     st.markdown("""
@@ -113,12 +120,12 @@ def mostrar_aba_mapa(df):
                 <span style="font-weight: bold; color: #93a1a1;">PARADA {st.session_state.indice_parada + 1} de {total_total}</span>
             </div>
             <div style="font-size: 13px; color: #93a1a1; margin-bottom: 5px;">{status_txt}</div>
-            <div style="font-size: 20px; font-weight: bold; margin: 5px 0;">{parada_atual['Destination Address']}</div>
+            <div style="font-size: 20px; font-weight: bold; margin: 5px 0;">📍 {parada_atual['Destination Address']}</div>
             <div style="font-size: 15px; color: #2aa198;">Bairro: {parada_atual.get('Bairro', 'N/A')}</div>
         </div>
     """, unsafe_allow_html=True)
 
-    # BOTÕES DE AÇÃO E NAVEGAÇÃO
+    # --- 7. BOTÕES DE AÇÃO ---
     c1, c2 = st.columns(2)
     with c1:
         link_waze = f"https://waze.com/ul?ll={parada_atual['Latitude']},{parada_atual['Longitude']}&navigate=yes"
@@ -138,6 +145,7 @@ def mostrar_aba_mapa(df):
                 st.session_state.mapa_id += 1
                 st.rerun()
 
+    # --- 8. NAVEGAÇÃO MANUAL ---
     nav1, nav2 = st.columns(2)
     if nav1.button("⬅️ ANTERIOR", use_container_width=True):
         if st.session_state.indice_parada > 0:
