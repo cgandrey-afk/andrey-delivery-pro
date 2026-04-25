@@ -52,7 +52,7 @@ else:
 
 # --- 5. NAVEGAÇÃO ---
 if st.session_state.get("pagina_atual") == "cadastro":
-    from manutencao import mostrar_tela_manutencao 
+    from criacao_conta import mostrar_tela_manutencao 
     mostrar_tela_manutencao()
 else:
     # ABA 1: INÍCIO    
